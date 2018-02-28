@@ -112,7 +112,7 @@ class LogStash::Outputs::SumoLogic < LogStash::Outputs::Base
 
     # initialize request pool
     @request_tokens = SizedQueue.new(@pool_max)
-    @pool_max.times { |t| @request_tokens << true }
+    @pool_max.times { |t| @request_tokens << t }
     @timer = Time.now
     @pile = Array.new
     @pile_size = 0
@@ -128,6 +128,7 @@ class LogStash::Outputs::SumoLogic < LogStash::Outputs::Base
   
   public
   def receive(event)
+    log_debug("Event received", :event => event.to_s)
     if event == LogStash::SHUTDOWN
       finished
       return
@@ -185,8 +186,19 @@ class LogStash::Outputs::SumoLogic < LogStash::Outputs::Base
     body = compress(content)
     headers = get_headers()
 
+    log_debug(
+      "Sending HTTP request", 
+      :token => token,
+      :payload_size => content.length,
+      :compressed_size => body.length,
+      :headers => headers
+    )
     request = client.send(:parallel).send(:post, @url, :body => body, :headers => headers)
     request.on_complete do
+      log_debug(
+        "HTTP request completed", 
+        :token => token
+      )
       @request_tokens << token
     end
 
@@ -196,7 +208,7 @@ class LogStash::Outputs::SumoLogic < LogStash::Outputs::Base
           "HTTP response #{response.code}",
           :body => body,
           :headers => headers
-      )
+        )
       end
     end
 
@@ -407,5 +419,10 @@ end # def dotify
   def log_failure(message, opts)
     @logger.error(message, opts)
   end # def log_failure
+
+  private
+  def log_debug(message, opts)
+    @logger.debug? && @logger.debug(message, opts)
+  end # def log_debug
 
 end # class LogStash::Outputs::SumoLogic
