@@ -128,8 +128,12 @@ class LogStash::Outputs::SumoLogic < LogStash::Outputs::Base
         return
       end
 
-      content = event2content(event)
-      queue_and_send(content)
+    content = event2content(event)
+	sharp = {}
+	sharp["NAME"] = expand(@source_name, event) if @source_name
+	sharp["HOST"] = expand(@source_host, event) if @source_host
+	sharp["CATG"] = expand(@source_category, event) if @source_category
+    queue_and_send(content, sharp)
 
     rescue
       log_failure(
@@ -155,16 +159,16 @@ class LogStash::Outputs::SumoLogic < LogStash::Outputs::Base
   end # def connect
   
   private
-  def queue_and_send(content)
+  def queue_and_send(content, sharp)
     if @interval <= 0 # means send immediately
-      send_request(content)
+      send_request(content, sharp)
     else
       @semaphore.synchronize {
         now = Time.now
         @pile << content
 
         if now - @timer > @interval # ready to send
-          send_request(@pile.join($/))
+          send_request(@pile.join($/), sharp)
           @timer = now
           @pile.clear
         end
@@ -173,10 +177,10 @@ class LogStash::Outputs::SumoLogic < LogStash::Outputs::Base
   end
 
   private
-  def send_request(content)
+  def send_request(content, sharp)
     token = @request_tokens.pop
     body = compress(content)
-    headers = get_headers()
+    headers = get_headers(sharp)
 
     request = client.send(:parallel).send(:post, @url, :body => body, :headers => headers)
     request.on_complete do
@@ -232,14 +236,17 @@ class LogStash::Outputs::SumoLogic < LogStash::Outputs::Base
   end # def gzip
 
   private
-  def get_headers()
+  def get_headers(sharp)
 
     base = {}
     base = @extra_headers if @extra_headers.is_a?(Hash)
 
-    base[CATEGORY_HEADER] = @source_category if @source_category
-    base[HOST_HEADER] = @source_host if @source_host
-    base[NAME_HEADER] = @source_name if @source_name
+    #base[CATEGORY_HEADER] = @source_category if @source_category
+    #base[HOST_HEADER] = @source_host if @source_host
+    #base[NAME_HEADER] = @source_name if @source_name
+    base[CATEGORY_HEADER] = sharp["CATG"] if sharp["CATG"]
+    base[HOST_HEADER] = sharp["HOST"] if sharp["HOST"]
+    base[NAME_HEADER] = sharp["NAME"] if sharp["NAME"]
     base[CLIENT_HEADER] = 'logstash-output-sumologic'
     
     if @compress
